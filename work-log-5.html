@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>作業ログ</title>
+<style>
+  :root{
+    --ink:#1f2a24;
+    --paper:#f4f2ec;
+    --panel:#ffffff;
+    --line:#dbd6c8;
+    --accent:#b5551f;
+    --accent-soft:#f0e2d4;
+    --danger:#a83232;
+    --muted:#7c7a6f;
+    --mono:'SFMono-Regular', ui-monospace, Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:-apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .wrap{max-width:480px;margin:0 auto;padding:14px 14px 40px;}
+  .status{background:var(--ink);color:var(--paper);border-radius:14px;padding:16px 18px;margin-bottom:14px;}
+  .status .eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#b9b5a2;margin-bottom:4px;}
+  .status .item{font-size:22px;font-weight:700;}
+  .status .item.idle{color:#b9b5a2; font-weight:500;}
+  .status .timer{font-family:var(--mono);font-size:14px;color:#e7c9a9;margin-top:6px;}
+  .status .started{font-size:12px;color:#8f8b78;margin-top:2px;}
+
+  .gridhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+  .gridhead h2{font-size:12px;margin:0;color:var(--muted);font-weight:600;letter-spacing:.02em;}
+  .gridhead button{background:none;border:none;color:var(--accent);font-size:12px;padding:4px 0;cursor:pointer;}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
+  button.item-btn{
+    appearance:none;border:1px solid var(--line);background:var(--panel);color:var(--ink);
+    border-radius:10px;padding:14px 8px;font-size:15px;font-weight:600;line-height:1.3;cursor:pointer;
+    transition:transform .08s ease, background .15s ease, border-color .15s ease;
+  }
+  button.item-btn:active{transform:scale(0.96);}
+  button.item-btn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  button.item-btn.break{border-style:dashed;}
+  button.item-btn.punch{border-color:var(--ink);}
+
+  .item-editor{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:12px;margin-bottom:12px;
+  }
+  .item-editor .row{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:7px 2px;border-bottom:1px dotted var(--line);font-size:14px;gap:6px;
+  }
+  .item-editor .row:last-of-type{border-bottom:none;}
+  .item-editor .row .rowname{flex:1;cursor:pointer;}
+  .item-editor .row.editing{gap:6px;}
+  .item-editor .row.editing input.renameInput{
+    flex:1;border:1px solid var(--line);border-radius:6px;padding:7px 8px;font-size:13px;
+    font-family:inherit;background:var(--paper);color:var(--ink);
+  }
+  .item-editor .row.editing button{
+    border:none;border-radius:6px;padding:7px 9px;font-size:12px;cursor:pointer;flex-shrink:0;
+  }
+  .item-editor .row.editing .saveRenameBtn{background:var(--accent);color:#fff;}
+  .item-editor .row.editing .cancelRenameBtn{background:none;color:var(--muted);}
+  .item-editor .row .reorder{display:flex;gap:2px;}
+  .item-editor .row .reorder button{
+    border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    font-size:12px;cursor:pointer;padding:3px 7px;border-radius:5px;
+  }
+  .item-editor .row .reorder button:disabled{opacity:.3;}
+  .item-editor .row .delbtn{
+    border:none;background:none;color:var(--danger);font-size:13px;cursor:pointer;padding:2px 6px;
+  }
+  .item-editor .addrow{display:flex;gap:6px;margin-top:10px;}
+  .item-editor .addrow input{
+    flex:1;border:1px solid var(--line);border-radius:6px;padding:8px;font-size:13px;
+    font-family:inherit;background:var(--paper);color:var(--ink);
+  }
+  .item-editor .addrow button{
+    border:none;border-radius:6px;padding:8px 12px;font-size:13px;cursor:pointer;
+    background:var(--accent);color:#fff;flex-shrink:0;
+  }
+  .item-editor .closeeditor{
+    width:100%;margin-top:10px;border:1px solid var(--line);background:transparent;
+    color:var(--muted);border-radius:6px;padding:9px;font-size:13px;cursor:pointer;
+  }
+
+  .endrow{margin-bottom:18px;}
+  button.end-btn{
+    width:100%;appearance:none;border:1px solid var(--line);background:transparent;color:var(--muted);
+    border-radius:10px;padding:11px;font-size:14px;cursor:pointer;
+  }
+  button.end-btn:active{background:var(--accent-soft);}
+  .log-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;padding-top:4px;}
+  .log-head h2{font-size:14px;margin:0;color:var(--muted);font-weight:600;letter-spacing:.02em;}
+  .log-head .undo{font-size:12px;color:var(--accent);background:none;border:none;cursor:pointer;padding:4px 0;}
+  .entry{
+    background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer;
+  }
+  .entry.ongoing{cursor:default;}
+  .entry-main{display:flex;align-items:baseline;gap:8px;}
+  .entry .stime{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--accent);flex-shrink:0;width:44px;}
+  .entry .name{font-size:14px;font-weight:600;flex:1;}
+  .entry .dur{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap;}
+  .entry .note{font-size:12.5px;color:var(--muted);margin-top:4px;padding-left:52px;line-height:1.4;}
+  .entry .note.placeholder{color:#b9b5a2;font-style:italic;}
+  .edit-panel{margin-top:10px;padding-left:52px;}
+  .edit-field{margin-bottom:8px;}
+  .edit-field label{display:block;font-size:11px;color:var(--muted);margin-bottom:3px;}
+  .time-fields{display:flex;gap:8px;}
+  .time-fields .edit-field{flex:1;}
+  .edit-panel input[type="time"],
+  .edit-panel input[type="text"]{
+    width:100%;border:1px solid var(--line);border-radius:6px;padding:7px 8px;font-size:13px;
+    font-family:inherit;background:var(--paper);color:var(--ink);
+  }
+  .edit-actions{display:flex;gap:6px;margin-top:8px;}
+  .edit-actions button{border:none;border-radius:6px;padding:7px 10px;font-size:12px;cursor:pointer;}
+  .edit-actions .save{background:var(--accent);color:#fff;}
+  .edit-actions .cancel{background:none;color:var(--muted);}
+  .edit-actions .delete{background:none;color:var(--danger);margin-left:auto;}
+  .edit-warn{font-size:11.5px;color:var(--danger);margin-top:4px;}
+  .empty{color:var(--muted);font-size:13px;padding:18px 4px;text-align:center;}
+  .summary{margin-top:18px;padding-top:12px;border-top:1px solid var(--line);}
+  .summary h2{font-size:14px;margin:0 0 8px;color:var(--muted);font-weight:600;}
+  .sum-row{display:flex;justify-content:space-between;font-size:13px;padding:5px 2px;border-bottom:1px dotted var(--line);}
+  .sum-row .dur{font-family:var(--mono);color:var(--ink);font-weight:600;}
+  .daybar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+  .daybar button{background:none;border:none;color:var(--accent);font-size:14px;padding:6px;cursor:pointer;}
+  .daybar .date{font-size:13px;color:var(--muted);}
+  .storagewarn{
+    font-size:11px;color:#9a5b12;background:var(--accent-soft);border-radius:8px;
+    padding:6px 10px;margin-bottom:10px;display:none;
+  }
+  .exportbar{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:12px;margin-bottom:18px;
+  }
+  .exportbar button{
+    width:100%;border:1px solid var(--line);background:transparent;color:var(--ink);
+    border-radius:8px;padding:10px;font-size:13px;cursor:pointer;font-weight:600;
+  }
+  .exportbar .edit-field{margin-bottom:10px;}
+  .exportbar .edit-field input[type="text"]{
+    width:100%;border:1px solid var(--line);border-radius:6px;padding:8px;font-size:13px;
+    font-family:inherit;background:var(--paper);color:var(--ink);
+  }
+  .exportbar #exportCsvBtn{background:var(--ink);color:var(--paper);border-color:var(--ink);margin-bottom:8px;}
+  .exportbar-sub{display:flex;gap:8px;}
+  .exportbar-sub button{font-weight:500;font-size:12.5px;padding:8px;}
+  .exportToggleRow{margin-top:6px;margin-bottom:8px;}
+  .exportToggleRow button{
+    width:100%;border:1px dashed var(--line);background:transparent;color:var(--muted);
+    border-radius:8px;padding:9px;font-size:13px;cursor:pointer;
+  }
+
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="daybar">
+    <button id="prevDay">← 前日</button>
+    <div class="date" id="dateLabel"></div>
+    <button id="nextDay">翌日 →</button>
+  </div>
+  <div class="daybar" id="todayBar" style="display:none; justify-content:center; margin-top:-6px;">
+    <button id="backToday">● 本日に戻る</button>
+  </div>
+
+  <div class="storagewarn" id="storageWarn">この端末に記録を保存できませんでした(プライベートブラウズ中などの可能性があります)。閉じると記録が消えます</div>
+
+  <div class="status">
+    <div class="eyebrow">記録中</div>
+    <div class="item idle" id="currentItem">未開始</div>
+    <div class="timer" id="currentTimer"></div>
+    <div class="started" id="currentStarted"></div>
+  </div>
+
+  <div class="gridhead">
+    <h2>項目</h2>
+    <button id="editItemsBtn">項目を編集</button>
+  </div>
+
+  <div class="item-editor" id="itemEditor" style="display:none;"></div>
+
+  <div class="grid" id="itemGrid"></div>
+
+  <div class="endrow">
+    <button class="end-btn" id="endBtn">■ ここで終了(記録を止める)</button>
+  </div>
+
+  <div class="log-head">
+    <h2>本日の記録</h2>
+    <button class="undo" id="undoBtn">直前を取り消す</button>
+  </div>
+  <div id="logList"></div>
+
+  <div class="summary" id="summaryBlock" style="display:none;">
+    <h2>項目別 合計</h2>
+    <div id="summaryList"></div>
+  </div>
+
+  <div class="exportToggleRow">
+    <button type="button" id="exportToggleBtn">保存・書き出し ▾</button>
+  </div>
+
+  <div class="exportbar" id="exportBar" style="display:none;">
+    <div class="edit-field">
+      <label>あなたの名前(ファイル名の区別に使用)</label>
+      <input type="text" id="nameInput" placeholder="例: 田中">
+    </div>
+    <button type="button" id="exportCsvBtn">CSVを書き出す(全期間)</button>
+    <div class="exportbar-sub">
+      <button type="button" id="exportBackupBtn">バックアップを保存</button>
+      <button type="button" id="importBackupBtn">バックアップを読み込む</button>
+      <input type="file" id="importBackupFile" accept="application/json" style="display:none;">
+    </div>
+  </div>
+
+</div>
+
+<script>
+const DEFAULT_ITEMS = ["出社","セットアップフォロー","スケジュール","サイジング作成","会議","休憩","打合せ","電話対応","質疑回答","社内キックオフ","退社"];
+const PUNCH_ITEMS = ["出社","退社"]; // styled distinctly
+
+let items = DEFAULT_ITEMS.slice();
+let viewDate = new Date();
+let current = null; // {item, start}
+const entriesCache = {}; // dateKey -> array of {item,start,end,note}
+let storageOK = true;
+let editingIndex = null;
+let showItemEditor = false;
+let editingItemName = null; // item currently being renamed in the editor panel
+
+function pad(n){return n.toString().padStart(2,'0');}
+function dateKey(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+function isToday(d){return dateKey(d)===dateKey(new Date());}
+function fmtTime(ts){const d=new Date(ts);return pad(d.getHours())+':'+pad(d.getMinutes());}
+function fmtDateLabel(d){
+  const wd=['日','月','火','水','木','金','土'][d.getDay()];
+  return (d.getMonth()+1)+'月'+d.getDate()+'日('+wd+')'+(isToday(d)?' ・ 今日':'');
+}
+function fmtDur(ms){
+  const mins=Math.round(ms/60000);
+  const h=Math.floor(mins/60), m=mins%60;
+  if(h>0) return h+'時間'+(m>0?m+'分':'');
+  return m+'分';
+}
+function esc(s){
+  return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function timeStrToTs(baseDate, hhmm){
+  const [h,m] = hhmm.split(':').map(Number);
+  const d = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), h, m, 0, 0);
+  return d.getTime();
+}
+// current wall-clock time-of-day, but dated on whichever day is being viewed
+function nowForViewDate(){
+  const n = new Date();
+  return new Date(viewDate.getFullYear(), viewDate.getMonth(), viewDate.getDate(), n.getHours(), n.getMinutes(), n.getSeconds(), n.getMilliseconds()).getTime();
+}
+
+const LS_PREFIX = 'worklog:';
+
+function markStorageFailed(){
+  if(storageOK){
+    storageOK = false;
+    const w = document.getElementById('storageWarn');
+    if(w) w.style.display = 'block';
+  }
+}
+
+// localStorage is the primary store — this file is opened directly in the
+// phone's browser and reopened later, and localStorage is what survives that.
+function lsSet(key, value){
+  try{
+    window.localStorage.setItem(LS_PREFIX+key, JSON.stringify(value));
+  }catch(e){ markStorageFailed(); }
+}
+function lsGet(key){
+  try{
+    const raw = window.localStorage.getItem(LS_PREFIX+key);
+    return raw === null ? undefined : JSON.parse(raw);
+  }catch(e){ markStorageFailed(); return undefined; }
+}
+function lsRemove(key){
+  try{
+    window.localStorage.removeItem(LS_PREFIX+key);
+  }catch(e){ markStorageFailed(); }
+}
+
+// best-effort mirror to window.storage too, in case this ever runs inside
+// a context that provides it — never blocks or throws
+function mirrorToWindowStorage(key, value){
+  try{
+    if(window.storage){
+      if(value===null) window.storage.delete(key, false).catch(()=>{});
+      else window.storage.set(key, JSON.stringify(value), false).catch(()=>{});
+    }
+  }catch(e){}
+}
+
+function persistEntries(d, arr){
+  const key = 'entries:'+dateKey(d);
+  lsSet(key, arr);
+  mirrorToWindowStorage(key, arr);
+}
+function persistCurrent(c){
+  if(c===null){
+    lsRemove('current');
+    mirrorToWindowStorage('current', null);
+  }else{
+    lsSet('current', c);
+    mirrorToWindowStorage('current', c);
+  }
+}
+function persistItems(){
+  lsSet('items', items);
+  mirrorToWindowStorage('items', items);
+}
+function persistPersonName(name){
+  lsSet('personName', name);
+  mirrorToWindowStorage('personName', name);
+}
+function fetchPersonName(){
+  const n = lsGet('personName');
+  return (typeof n === 'string') ? n : '';
+}
+function safeForFilename(s){
+  return (s||'').trim().replace(/[\\\/:*?"<>|\s]+/g, '_');
+}
+async function fetchEntries(d){
+  const key = dateKey(d);
+  if(entriesCache[key] !== undefined) return entriesCache[key];
+  let arr = lsGet('entries:'+key);
+  if(!Array.isArray(arr)) arr = [];
+  entriesCache[key] = arr;
+  return arr;
+}
+async function fetchCurrent(){
+  const c = lsGet('current');
+  return c || null;
+}
+async function fetchItems(){
+  const arr = lsGet('items');
+  if(Array.isArray(arr) && arr.length>0) return arr;
+  return DEFAULT_ITEMS.slice();
+}
+
+async function switchTo(item){
+  const now = nowForViewDate();
+  if(current){
+    const d = new Date(current.start);
+    const key = dateKey(d);
+    if(entriesCache[key]===undefined) entriesCache[key] = [];
+    entriesCache[key].push({item: current.item, start: current.start, end: now, note: ''});
+    persistEntries(d, entriesCache[key]);
+  }
+  if(item !== null && PUNCH_ITEMS.includes(item)){
+    // punch items (出社/退社): record as an instant marker, do not start an ongoing task
+    const d = new Date(now);
+    const key = dateKey(d);
+    if(entriesCache[key]===undefined) entriesCache[key] = [];
+    entriesCache[key].push({item: item, start: now, end: now, note: ''});
+    persistEntries(d, entriesCache[key]);
+    current = null;
+  }else{
+    current = item===null ? null : {item, start: now};
+  }
+  persistCurrent(current);
+  editingIndex = null;
+  render();
+}
+
+async function undoLast(){
+  const key = dateKey(viewDate);
+  const entries = await fetchEntries(viewDate);
+  if(entries.length===0) return;
+  entries.pop();
+  entriesCache[key] = entries;
+  persistEntries(viewDate, entries);
+  editingIndex = null;
+  render();
+}
+
+async function deleteEntry(index){
+  const key = dateKey(viewDate);
+  const entries = await fetchEntries(viewDate);
+  entries.splice(index, 1);
+  entriesCache[key] = entries;
+  persistEntries(viewDate, entries);
+  editingIndex = null;
+  render();
+}
+
+function openEdit(index){
+  editingIndex = (editingIndex===index) ? null : index;
+  render();
+}
+
+async function saveEdit(index, startStr, endStr, note){
+  const key = dateKey(viewDate);
+  const entries = await fetchEntries(viewDate);
+  const e = entries[index];
+  if(!e) return;
+  const newStart = timeStrToTs(viewDate, startStr);
+  const newEnd = timeStrToTs(viewDate, endStr);
+  if(newEnd <= newStart){
+    render(true);
+    return;
+  }
+  e.start = newStart;
+  e.end = newEnd;
+  e.note = note.trim();
+  entriesCache[key] = entries;
+  persistEntries(viewDate, entries);
+  editingIndex = null;
+  render();
+}
+
+function addItem(name){
+  name = name.trim();
+  if(!name) return;
+  if(items.includes(name)) return;
+  items.push(name);
+  persistItems();
+  render();
+}
+function removeItem(name){
+  items = items.filter(i => i!==name);
+  persistItems();
+  render();
+}
+function moveItem(index, dir){
+  const newIndex = index + dir;
+  if(newIndex < 0 || newIndex >= items.length) return;
+  const tmp = items[index];
+  items[index] = items[newIndex];
+  items[newIndex] = tmp;
+  persistItems();
+  render();
+}
+
+function renameItem(oldName, newNameRaw){
+  const newName = newNameRaw.trim();
+  if(!newName || newName===oldName){ editingItemName=null; render(); return; }
+  if(items.includes(newName)){ editingItemName=null; render(); return; } // avoid duplicate names
+
+  const idx = items.indexOf(oldName);
+  if(idx===-1){ editingItemName=null; render(); return; }
+  items[idx] = newName;
+  persistItems();
+
+  if(current && current.item===oldName){
+    current.item = newName;
+    persistCurrent(current);
+  }
+
+  // update the name in every stored day's entries, and in the in-memory cache
+  try{
+    for(let i=0; i<window.localStorage.length; i++){
+      const k = window.localStorage.key(i);
+      if(!k || !k.startsWith(LS_PREFIX+'entries:')) continue;
+      const dateK = k.slice((LS_PREFIX+'entries:').length);
+      let arr = lsGet('entries:'+dateK);
+      if(!Array.isArray(arr)) continue;
+      let changed = false;
+      arr.forEach(e=>{ if(e.item===oldName){ e.item=newName; changed=true; } });
+      if(changed){
+        lsSet('entries:'+dateK, arr);
+        mirrorToWindowStorage('entries:'+dateK, arr);
+        entriesCache[dateK] = arr; // keep in-memory cache in sync
+      }
+    }
+  }catch(e){}
+
+  editingItemName = null;
+  render();
+}
+
+function tickTimer(){
+  const el = document.getElementById('currentTimer');
+  if(!el) return;
+  const belongsToView = current && dateKey(new Date(current.start)) === dateKey(viewDate);
+  const isRealToday = current && dateKey(new Date(current.start)) === dateKey(new Date());
+  el.textContent = (belongsToView && isRealToday) ? (fmtDur(Date.now()-current.start) + ' 経過') : '';
+}
+
+function renderItemEditor(){
+  const box = document.getElementById('itemEditor');
+  box.style.display = showItemEditor ? 'block' : 'none';
+  if(!showItemEditor) { box.innerHTML=''; return; }
+  box.innerHTML = items.map((name, idx) =>
+    editingItemName===name
+      ? ('<div class="row editing">'+
+          '<input type="text" class="renameInput" value="'+esc(name)+'">'+
+          '<button type="button" class="saveRenameBtn" data-name="'+esc(name)+'">保存</button>'+
+          '<button type="button" class="cancelRenameBtn">取消</button>'+
+        '</div>')
+      : ('<div class="row">'+
+          '<div class="reorder">'+
+            '<button type="button" class="upbtn" data-idx="'+idx+'"'+(idx===0?' disabled':'')+'>↑</button>'+
+            '<button type="button" class="downbtn" data-idx="'+idx+'"'+(idx===items.length-1?' disabled':'')+'>↓</button>'+
+          '</div>'+
+          '<span class="rowname editbtn" data-name="'+esc(name)+'">'+esc(name)+'</span>'+
+          '<button type="button" class="delbtn" data-name="'+esc(name)+'">削除</button>'+
+        '</div>')
+  ).join('') +
+  '<div class="addrow"><input type="text" id="newItemInput" placeholder="新しい項目名"><button type="button" id="addItemBtn">追加</button></div>'+
+  '<button type="button" id="closeItemEditorBtn" class="closeeditor">閉じる</button>';
+  box.querySelectorAll('.delbtn').forEach(btn=>{
+    btn.addEventListener('click', ()=> removeItem(btn.getAttribute('data-name')));
+  });
+  box.querySelectorAll('.upbtn').forEach(btn=>{
+    btn.addEventListener('click', ()=> moveItem(parseInt(btn.getAttribute('data-idx'),10), -1));
+  });
+  box.querySelectorAll('.downbtn').forEach(btn=>{
+    btn.addEventListener('click', ()=> moveItem(parseInt(btn.getAttribute('data-idx'),10), 1));
+  });
+  box.querySelectorAll('.editbtn').forEach(el=>{
+    el.addEventListener('click', ()=>{ editingItemName = el.getAttribute('data-name'); render(); });
+  });
+  box.querySelectorAll('.saveRenameBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const row = btn.closest('.row');
+      const input = row.querySelector('.renameInput');
+      renameItem(btn.getAttribute('data-name'), input.value);
+    });
+  });
+  box.querySelectorAll('.cancelRenameBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ editingItemName=null; render(); });
+  });
+  document.getElementById('closeItemEditorBtn').addEventListener('click', ()=>{ showItemEditor=false; editingItemName=null; render(); });
+  const input = document.getElementById('newItemInput');
+  document.getElementById('addItemBtn').addEventListener('click', ()=>{
+    addItem(input.value);
+  });
+  input.addEventListener('keydown', (ev)=>{
+    if(ev.key==='Enter'){ addItem(input.value); }
+  });
+}
+
+async function render(showTimeWarning){
+  document.getElementById('dateLabel').textContent = fmtDateLabel(viewDate);
+  const todayBar = document.getElementById('todayBar');
+  if(todayBar) todayBar.style.display = isToday(viewDate) ? 'none' : 'flex';
+
+  const itemEl = document.getElementById('currentItem');
+  const startedEl = document.getElementById('currentStarted');
+  const timerEl = document.getElementById('currentTimer');
+  const currentBelongsToView = current && dateKey(new Date(current.start)) === dateKey(viewDate);
+  const currentIsRealToday = current && dateKey(new Date(current.start)) === dateKey(new Date());
+  if(currentBelongsToView){
+    itemEl.textContent = current.item;
+    itemEl.classList.remove('idle');
+    startedEl.textContent = fmtTime(current.start) + ' 開始';
+  }else{
+    itemEl.textContent = '未開始';
+    itemEl.classList.add('idle');
+    startedEl.textContent = '';
+    if(timerEl) timerEl.textContent = '';
+  }
+  if(currentBelongsToView && currentIsRealToday) tickTimer();
+  else if(timerEl && currentBelongsToView) timerEl.textContent = '';
+
+  renderItemEditor();
+
+  const grid = document.getElementById('itemGrid');
+  grid.innerHTML = '';
+  items.forEach(name=>{
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'item-btn'
+      + (name==='休憩' ? ' break' : '')
+      + (PUNCH_ITEMS.includes(name) ? ' punch' : '')
+      + (currentBelongsToView && current.item===name ? ' active' : '');
+    b.textContent = name;
+    b.addEventListener('click', ()=> switchTo(name));
+    grid.appendChild(b);
+  });
+
+  const entries = await fetchEntries(viewDate);
+  const logList = document.getElementById('logList');
+  logList.innerHTML = '';
+  const hasOngoingToday = currentBelongsToView;
+
+  if(entries.length===0 && !hasOngoingToday){
+    logList.innerHTML = '<div class="empty">まだ記録がありません</div>';
+  }else{
+    entries.forEach((e, idx)=>{
+      const div = document.createElement('div');
+      div.className='entry';
+      const noteHtml = e.note
+        ? '<div class="note">'+esc(e.note)+'</div>'
+        : (editingIndex===idx ? '' : '<div class="note placeholder">タップして編集</div>');
+      div.innerHTML =
+        '<div class="entry-main">'+
+          '<span class="stime">'+fmtTime(e.start)+'</span>'+
+          '<span class="name">'+esc(e.item)+'</span>'+
+          '<span class="dur">'+(e.end===e.start ? '打刻' : fmtDur(e.end-e.start))+'</span>'+
+        '</div>' + noteHtml;
+      div.querySelector('.entry-main').addEventListener('click', ()=> openEdit(idx));
+      const noteEl = div.querySelector('.note');
+      if(noteEl) noteEl.addEventListener('click', ()=> openEdit(idx));
+
+      if(editingIndex===idx){
+        const panel = document.createElement('div');
+        panel.className = 'edit-panel';
+        panel.innerHTML =
+          '<div class="time-fields">'+
+            '<div class="edit-field"><label>開始</label><input type="time" class="fstart" value="'+fmtTime(e.start)+'"></div>'+
+            '<div class="edit-field"><label>終了</label><input type="time" class="fend" value="'+fmtTime(e.end)+'"></div>'+
+          '</div>'+
+          '<div class="edit-field"><label>詳細メモ</label><input type="text" class="fnote" placeholder="詳細メモ" value="'+esc(e.note||'')+'"></div>'+
+          (showTimeWarning ? '<div class="edit-warn">終了は開始より後の時刻にしてください</div>' : '')+
+          '<div class="edit-actions">'+
+            '<button type="button" class="save">保存</button>'+
+            '<button type="button" class="cancel">閉じる</button>'+
+            '<button type="button" class="delete">この記録を削除</button>'+
+          '</div>';
+        const fstart = panel.querySelector('.fstart');
+        const fend = panel.querySelector('.fend');
+        const fnote = panel.querySelector('.fnote');
+        panel.querySelector('.save').addEventListener('click', ()=> saveEdit(idx, fstart.value, fend.value, fnote.value));
+        panel.querySelector('.cancel').addEventListener('click', ()=> { editingIndex=null; render(); });
+        panel.querySelector('.delete').addEventListener('click', ()=> deleteEntry(idx));
+        div.appendChild(panel);
+      }
+      logList.appendChild(div);
+    });
+    if(hasOngoingToday){
+      const div = document.createElement('div');
+      div.className='entry ongoing';
+      div.innerHTML =
+        '<div class="entry-main">'+
+          '<span class="stime">'+fmtTime(current.start)+'</span>'+
+          '<span class="name">'+esc(current.item)+'</span>'+
+          '<span class="dur">記録中</span>'+
+        '</div>';
+      logList.appendChild(div);
+    }
+  }
+
+  const sumBlock = document.getElementById('summaryBlock');
+  const sumList = document.getElementById('summaryList');
+  const totals = {};
+  entries.forEach(e=>{ totals[e.item] = (totals[e.item]||0) + (e.end-e.start); });
+  if(hasOngoingToday){
+    totals[current.item] = (totals[current.item]||0) + (Date.now()-current.start);
+  }
+  const keys = Object.keys(totals);
+  if(keys.length>0){
+    sumBlock.style.display='block';
+    sumList.innerHTML = keys
+      .sort((a,b)=>totals[b]-totals[a])
+      .map(k=>'<div class="sum-row"><span>'+esc(k)+'</span><span class="dur">'+fmtDur(totals[k])+'</span></div>')
+      .join('');
+  }else{
+    sumBlock.style.display='none';
+  }
+}
+
+function allStoredDateKeys(){
+  const keys = [];
+  try{
+    for(let i=0; i<window.localStorage.length; i++){
+      const k = window.localStorage.key(i);
+      if(k && k.startsWith(LS_PREFIX+'entries:')){
+        keys.push(k.slice((LS_PREFIX+'entries:').length));
+      }
+    }
+  }catch(e){}
+  return keys.sort();
+}
+
+function downloadFile(filename, content, mime){
+  const blob = new Blob([content], {type: mime});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=> URL.revokeObjectURL(url), 1000);
+}
+
+function csvField(s){
+  s = String(s==null ? '' : s);
+  if(/[",\n]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
+  return s;
+}
+
+function exportCSV(){
+  const personName = fetchPersonName();
+  const dateKeys = allStoredDateKeys();
+  const rows = [['日付','担当者','開始','終了','時間(分)','項目','メモ']];
+  dateKeys.forEach(dk=>{
+    const arr = lsGet('entries:'+dk) || [];
+    arr.forEach(e=>{
+      const mins = Math.round((e.end - e.start)/60000);
+      rows.push([dk, personName, fmtTime(e.start), fmtTime(e.end), mins, e.item, e.note||'']);
+    });
+  });
+  const csv = rows.map(r => r.map(csvField).join(',')).join('\r\n');
+  const yearMonth = dateKey(new Date()).slice(0,7); // YYYY-MM, based on export date
+  const nameLabel = safeForFilename(personName) || '名前未設定';
+  // BOM so Excel opens Japanese text correctly
+  downloadFile('worklog_'+yearMonth+'_'+nameLabel+'.csv', '\ufeff'+csv, 'text/csv;charset=utf-8;');
+}
+
+function exportBackup(){
+  const personName = fetchPersonName();
+  const dateKeys = allStoredDateKeys();
+  const entries = {};
+  dateKeys.forEach(dk=>{ entries[dk] = lsGet('entries:'+dk) || []; });
+  const backup = {
+    exportedAt: new Date().toISOString(),
+    items: items,
+    entries: entries
+  };
+  const yearMonth = dateKey(new Date()).slice(0,7);
+  const nameLabel = safeForFilename(personName) || '名前未設定';
+  downloadFile('worklog_backup_'+yearMonth+'_'+nameLabel+'.json', JSON.stringify(backup, null, 2), 'application/json');
+}
+
+async function importBackup(file){
+  try{
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if(Array.isArray(data.items) && data.items.length>0){
+      items = data.items;
+      persistItems();
+    }
+    if(data.entries && typeof data.entries==='object'){
+      Object.keys(data.entries).forEach(dk=>{
+        const arr = data.entries[dk];
+        if(Array.isArray(arr)){
+          lsSet('entries:'+dk, arr);
+          mirrorToWindowStorage('entries:'+dk, arr);
+          entriesCache[dk] = arr;
+        }
+      });
+    }
+    render();
+  }catch(e){
+    markStorageFailed();
+  }
+}
+
+document.getElementById('exportToggleBtn').addEventListener('click', ()=>{
+  const bar = document.getElementById('exportBar');
+  const btn = document.getElementById('exportToggleBtn');
+  const open = bar.style.display !== 'none';
+  bar.style.display = open ? 'none' : 'block';
+  btn.textContent = open ? '保存・書き出し ▾' : '保存・書き出し ▴';
+});
+document.getElementById('nameInput').addEventListener('change', (ev)=>{ persistPersonName(ev.target.value); });
+document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
+document.getElementById('exportBackupBtn').addEventListener('click', exportBackup);
+document.getElementById('importBackupBtn').addEventListener('click', ()=>{
+  document.getElementById('importBackupFile').click();
+});
+document.getElementById('importBackupFile').addEventListener('change', (ev)=>{
+  const file = ev.target.files[0];
+  if(file) importBackup(file);
+  ev.target.value = '';
+});
+
+document.getElementById('endBtn').addEventListener('click', ()=> switchTo(null));
+document.getElementById('undoBtn').addEventListener('click', ()=> undoLast());
+document.getElementById('prevDay').addEventListener('click', ()=>{ viewDate = new Date(viewDate.getTime()-86400000); editingIndex=null; render(); });
+document.getElementById('nextDay').addEventListener('click', ()=>{ viewDate = new Date(viewDate.getTime()+86400000); editingIndex=null; render(); });
+document.getElementById('editItemsBtn').addEventListener('click', ()=>{ showItemEditor = !showItemEditor; render(); });
+document.getElementById('backToday').addEventListener('click', ()=>{ viewDate = new Date(); editingIndex=null; render(); });
+
+(async function init(){
+  try{ document.getElementById('nameInput').value = fetchPersonName(); }catch(e){}
+  try{ items = await fetchItems(); }catch(e){ items = DEFAULT_ITEMS.slice(); }
+  try{ current = await fetchCurrent(); }catch(e){ current = null; }
+  try{ await fetchEntries(viewDate); }catch(e){}
+  await render();
+  setInterval(tickTimer, 15000);
+})();
+</script>
+</body>
+</html>
