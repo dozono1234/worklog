@@ -154,6 +154,11 @@
   .exportbar #exportCsvBtn{background:var(--ink);color:var(--paper);border-color:var(--ink);margin-bottom:8px;}
   .exportbar-sub{display:flex;gap:8px;}
   .exportbar-sub button{font-weight:500;font-size:12.5px;padding:8px;}
+  .importStatus{
+    margin-top:10px;font-size:12.5px;padding:8px 10px;border-radius:8px;line-height:1.5;
+  }
+  .importStatus.ok{background:#e7f0e2;color:#3a6b2a;}
+  .importStatus.err{background:var(--accent-soft);color:var(--danger);}
   .exportToggleRow{margin-top:6px;margin-bottom:8px;}
   .exportToggleRow button{
     width:100%;border:1px dashed var(--line);background:transparent;color:var(--muted);
@@ -220,8 +225,9 @@
     <div class="exportbar-sub">
       <button type="button" id="exportBackupBtn">バックアップを保存</button>
       <button type="button" id="importBackupBtn">バックアップを読み込む</button>
-      <input type="file" id="importBackupFile" accept="application/json" style="display:none;">
+      <input type="file" id="importBackupFile" accept=".json,application/json" style="display:none;">
     </div>
+    <div class="importStatus" id="importStatus" style="display:none;"></div>
   </div>
 
 </div>
@@ -731,13 +737,35 @@ function exportBackup(){
   downloadFile('worklog_backup_'+yearMonth+'_'+nameLabel+'.json', JSON.stringify(backup, null, 2), 'application/json');
 }
 
+function showImportStatus(msg, ok){
+  const el = document.getElementById('importStatus');
+  if(!el) return;
+  el.textContent = msg;
+  el.className = 'importStatus ' + (ok ? 'ok' : 'err');
+  el.style.display = 'block';
+}
+
 async function importBackup(file){
+  let text;
   try{
-    const text = await file.text();
-    const data = JSON.parse(text);
+    text = await file.text();
+  }catch(e){
+    showImportStatus('ファイルを読み込めませんでした: ' + (e && e.message ? e.message : e), false);
+    return;
+  }
+  let data;
+  try{
+    data = JSON.parse(text);
+  }catch(e){
+    showImportStatus('JSONとして解析できませんでした。正しいバックアップファイル(.json)か確認してください。', false);
+    return;
+  }
+  try{
+    let itemCount = 0, entryDayCount = 0;
     if(Array.isArray(data.items) && data.items.length>0){
       items = data.items;
       persistItems();
+      itemCount = items.length;
     }
     if(data.entries && typeof data.entries==='object'){
       Object.keys(data.entries).forEach(dk=>{
@@ -746,12 +774,14 @@ async function importBackup(file){
           lsSet('entries:'+dk, arr);
           mirrorToWindowStorage('entries:'+dk, arr);
           entriesCache[dk] = arr;
+          entryDayCount++;
         }
       });
     }
     render();
+    showImportStatus('読み込み完了:項目'+itemCount+'件、'+entryDayCount+'日分の記録を反映しました。', true);
   }catch(e){
-    markStorageFailed();
+    showImportStatus('読み込み中にエラーが発生しました: ' + (e && e.message ? e.message : e), false);
   }
 }
 
@@ -770,7 +800,11 @@ document.getElementById('importBackupBtn').addEventListener('click', ()=>{
 });
 document.getElementById('importBackupFile').addEventListener('change', (ev)=>{
   const file = ev.target.files[0];
-  if(file) importBackup(file);
+  if(file){
+    importBackup(file);
+  }else{
+    showImportStatus('ファイルが選択されませんでした。もう一度お試しください。', false);
+  }
   ev.target.value = '';
 });
 
