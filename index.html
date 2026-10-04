@@ -89,6 +89,16 @@
     width:100%;margin-top:10px;border:1px solid var(--line);background:transparent;
     color:var(--muted);border-radius:6px;padding:9px;font-size:13px;cursor:pointer;
   }
+  .item-editor .favbtn{
+    border:none;background:none;font-size:16px;cursor:pointer;padding:2px 4px;flex-shrink:0;color:var(--accent);
+  }
+  .favhint{font-size:11px;color:var(--muted);margin-top:8px;}
+
+  .moreItemsRow{margin-top:2px;margin-bottom:0;}
+  .moreItemsRow button{
+    width:100%;border:1px dashed var(--line);background:transparent;color:var(--muted);
+    border-radius:8px;padding:8px;font-size:12.5px;cursor:pointer;
+  }
 
   .endrow{margin-bottom:18px;}
   button.end-btn{
@@ -173,6 +183,26 @@
     border-radius:8px;padding:9px;font-size:13px;cursor:pointer;
   }
 
+  .periodbox{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    padding:12px;margin-bottom:12px;
+  }
+  .periodModeRow{display:flex;gap:8px;margin-bottom:12px;}
+  .pmodebtn{
+    flex:1;border:1px solid var(--line);background:transparent;color:var(--ink);
+    border-radius:8px;padding:8px;font-size:13px;cursor:pointer;font-weight:600;
+  }
+  .pmodebtn.active{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+  .periodh2{font-size:13px;color:var(--muted);font-weight:600;margin:16px 0 8px;}
+  .pday{
+    background:var(--paper);border:1px solid var(--line);border-radius:8px;
+    padding:9px 11px;margin-bottom:6px;cursor:pointer;
+  }
+  .pday.today{border-left:3px solid var(--accent);}
+  .pday-main{display:flex;justify-content:space-between;align-items:baseline;font-size:13.5px;font-weight:600;gap:8px;}
+  .pday-total{font-family:var(--mono);color:var(--accent);white-space:nowrap;}
+  .pday-items{font-size:11.5px;color:var(--muted);margin-top:3px;}
+
 </style>
 </head>
 <body>
@@ -205,6 +235,11 @@
 
   <div class="grid" id="itemGrid"></div>
 
+  <div class="moreItemsRow" id="moreItemsRow" style="display:none;">
+    <button type="button" id="moreItemsBtn">もっと見る ▾</button>
+  </div>
+  <div class="grid" id="otherItemGrid" style="display:none; margin-top:8px;"></div>
+
   <div class="endrow">
     <button class="end-btn" id="endBtn">■ ここで終了(記録を止める)</button>
   </div>
@@ -218,6 +253,31 @@
   <div class="summary" id="summaryBlock" style="display:none;">
     <h2>項目別 合計</h2>
     <div id="summaryList"></div>
+  </div>
+
+  <div class="exportToggleRow">
+    <button type="button" id="periodToggleBtn">週・月でまとめて見る ▾</button>
+  </div>
+
+  <div class="periodbox" id="periodBox" style="display:none;">
+    <div class="periodModeRow">
+      <button type="button" id="periodModeWeek" class="pmodebtn">週</button>
+      <button type="button" id="periodModeMonth" class="pmodebtn">月</button>
+    </div>
+    <div class="daybar">
+      <button type="button" id="periodPrevBtn">← 前</button>
+      <div class="date" id="periodRangeLabel"></div>
+      <button type="button" id="periodNextBtn">次 →</button>
+    </div>
+    <div class="daybar" id="periodBackBar" style="display:none; justify-content:center; margin-top:-6px;">
+      <button type="button" id="periodBackToCurrentBtn">● 今に戻る</button>
+    </div>
+
+    <h2 class="periodh2">項目別 合計</h2>
+    <div id="periodSummaryList"></div>
+
+    <h2 class="periodh2">日ごとの合計(タップでその日を開きます)</h2>
+    <div id="periodDayList"></div>
   </div>
 
   <div class="exportToggleRow">
@@ -271,6 +331,11 @@ let storageOK = true;
 let editingIndex = null;
 let showItemEditor = false;
 let editingItemName = null; // item currently being renamed in the editor panel
+let showPeriodPanel = false;
+let periodMode = 'week'; // 'week' | 'month'
+let periodAnchor = new Date();
+let favItems = []; // item names shown in the main grid by default
+let showAllItems = false; // whether the non-favorite items are expanded
 
 function pad(n){return n.toString().padStart(2,'0');}
 function dateKey(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
@@ -363,6 +428,19 @@ function persistItems(){
 function persistPersonName(name){
   lsSet('personName', name);
   mirrorToWindowStorage('personName', name);
+}
+function persistFavItems(){
+  lsSet('favItems', favItems);
+  mirrorToWindowStorage('favItems', favItems);
+}
+function fetchFavItems(){
+  let arr = lsGet('favItems');
+  if(!Array.isArray(arr)){
+    // first time: everything starts as a favorite, so nothing changes yet
+    arr = items.slice();
+    lsSet('favItems', arr);
+  }
+  return arr.filter(n => items.includes(n));
 }
 function fetchPersonName(){
   const n = lsGet('personName');
@@ -466,11 +544,23 @@ function addItem(name){
   if(items.includes(name)) return;
   items.push(name);
   persistItems();
+  // new items start un-favorited, so the main grid doesn't grow by itself
   render();
 }
 function removeItem(name){
   items = items.filter(i => i!==name);
+  favItems = favItems.filter(n => n!==name);
   persistItems();
+  persistFavItems();
+  render();
+}
+function toggleFavorite(name){
+  if(favItems.includes(name)){
+    favItems = favItems.filter(n => n!==name);
+  }else{
+    favItems.push(name);
+  }
+  persistFavItems();
   render();
 }
 function moveItem(index, dir){
@@ -492,6 +582,9 @@ function renameItem(oldName, newNameRaw){
   if(idx===-1){ editingItemName=null; render(); return; }
   items[idx] = newName;
   persistItems();
+
+  const favIdx = favItems.indexOf(oldName);
+  if(favIdx!==-1){ favItems[favIdx] = newName; persistFavItems(); }
 
   if(current && current.item===oldName){
     current.item = newName;
@@ -544,10 +637,12 @@ function renderItemEditor(){
             '<button type="button" class="upbtn" data-idx="'+idx+'"'+(idx===0?' disabled':'')+'>↑</button>'+
             '<button type="button" class="downbtn" data-idx="'+idx+'"'+(idx===items.length-1?' disabled':'')+'>↓</button>'+
           '</div>'+
+          '<button type="button" class="favbtn" data-name="'+esc(name)+'" title="よく使う項目として表示">'+(favItems.includes(name)?'★':'☆')+'</button>'+
           '<span class="rowname editbtn" data-name="'+esc(name)+'">'+esc(name)+'</span>'+
           '<button type="button" class="delbtn" data-name="'+esc(name)+'">削除</button>'+
         '</div>')
   ).join('') +
+  '<div class="favhint">★:メイン画面に常に表示 / ☆:「もっと見る」で表示</div>' +
   '<div class="addrow"><input type="text" id="newItemInput" placeholder="新しい項目名"><button type="button" id="addItemBtn">追加</button></div>'+
   '<button type="button" id="closeItemEditorBtn" class="closeeditor">閉じる</button>';
   box.querySelectorAll('.delbtn').forEach(btn=>{
@@ -558,6 +653,9 @@ function renderItemEditor(){
   });
   box.querySelectorAll('.downbtn').forEach(btn=>{
     btn.addEventListener('click', ()=> moveItem(parseInt(btn.getAttribute('data-idx'),10), 1));
+  });
+  box.querySelectorAll('.favbtn').forEach(btn=>{
+    btn.addEventListener('click', ()=> toggleFavorite(btn.getAttribute('data-name')));
   });
   box.querySelectorAll('.editbtn').forEach(el=>{
     el.addEventListener('click', ()=>{ editingItemName = el.getAttribute('data-name'); render(); });
@@ -607,9 +705,7 @@ async function render(showTimeWarning){
 
   renderItemEditor();
 
-  const grid = document.getElementById('itemGrid');
-  grid.innerHTML = '';
-  items.forEach(name=>{
+  function makeItemButton(name){
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'item-btn'
@@ -618,8 +714,36 @@ async function render(showTimeWarning){
       + (currentBelongsToView && current.item===name ? ' active' : '');
     b.textContent = name;
     b.addEventListener('click', ()=> switchTo(name));
-    grid.appendChild(b);
-  });
+    return b;
+  }
+
+  const favSet = new Set(favItems.filter(n => items.includes(n)));
+  let favoriteItems = items.filter(n => favSet.has(n));
+  let otherItems = items.filter(n => !favSet.has(n));
+  if(favoriteItems.length===0){ favoriteItems = items.slice(); otherItems = []; } // never show an empty grid
+
+  const grid = document.getElementById('itemGrid');
+  grid.innerHTML = '';
+  favoriteItems.forEach(name => grid.appendChild(makeItemButton(name)));
+
+  const moreRow = document.getElementById('moreItemsRow');
+  const moreBtn = document.getElementById('moreItemsBtn');
+  const otherGrid = document.getElementById('otherItemGrid');
+  if(otherItems.length>0){
+    moreRow.style.display = 'block';
+    moreBtn.textContent = showAllItems ? '閉じる ▴' : 'もっと見る(+'+otherItems.length+') ▾';
+    otherGrid.innerHTML = '';
+    if(showAllItems){
+      otherGrid.style.display = 'grid';
+      otherItems.forEach(name => otherGrid.appendChild(makeItemButton(name)));
+    }else{
+      otherGrid.style.display = 'none';
+    }
+  }else{
+    moreRow.style.display = 'none';
+    otherGrid.style.display = 'none';
+    otherGrid.innerHTML = '';
+  }
 
   const entries = await fetchEntries(viewDate);
   const logList = document.getElementById('logList');
@@ -699,6 +823,133 @@ async function render(showTimeWarning){
       .join('');
   }else{
     sumBlock.style.display='none';
+  }
+}
+
+// ================= Week / month summary view =================
+function startOfWeek(d){ // Monday start
+  const dt = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = dt.getDay(); // 0=Sun..6=Sat
+  const diff = (day===0 ? -6 : 1-day);
+  dt.setDate(dt.getDate()+diff);
+  return dt;
+}
+function endOfWeek(d){
+  const s = startOfWeek(d);
+  const e = new Date(s);
+  e.setDate(e.getDate()+6);
+  return e;
+}
+function startOfMonth(d){ return new Date(d.getFullYear(), d.getMonth(), 1); }
+function endOfMonth(d){ return new Date(d.getFullYear(), d.getMonth()+1, 0); }
+
+function getPeriodRange(){
+  return periodMode==='week'
+    ? [startOfWeek(periodAnchor), endOfWeek(periodAnchor)]
+    : [startOfMonth(periodAnchor), endOfMonth(periodAnchor)];
+}
+function getPeriodLabelText(){
+  const [s,e] = getPeriodRange();
+  if(periodMode==='week'){
+    const sameYear = s.getFullYear()===e.getFullYear();
+    return (sameYear?'':s.getFullYear()+'/') + (s.getMonth()+1)+'/'+s.getDate() + ' - ' + (e.getMonth()+1)+'/'+e.getDate();
+  }
+  return s.getFullYear()+'年'+(s.getMonth()+1)+'月';
+}
+function isCurrentPeriod(){
+  const [s,e] = getPeriodRange();
+  const now = new Date();
+  const sKey = dateKey(s), eKey = dateKey(e), nKey = dateKey(now);
+  return nKey >= sKey && nKey <= eKey;
+}
+function shiftPeriod(dir){
+  if(periodMode==='week'){
+    periodAnchor = new Date(periodAnchor.getTime() + dir*7*86400000);
+  }else{
+    periodAnchor = new Date(periodAnchor.getFullYear(), periodAnchor.getMonth()+dir, 1);
+  }
+  renderPeriodSummary();
+}
+
+async function renderPeriodSummary(){
+  const box = document.getElementById('periodBox');
+  if(!showPeriodPanel){ if(box) box.style.display='none'; return; }
+  box.style.display = 'block';
+
+  document.getElementById('periodRangeLabel').textContent = getPeriodLabelText();
+  document.getElementById('periodBackBar').style.display = isCurrentPeriod() ? 'none' : 'flex';
+  document.getElementById('periodModeWeek').classList.toggle('active', periodMode==='week');
+  document.getElementById('periodModeMonth').classList.toggle('active', periodMode==='month');
+
+  const [s, e] = getPeriodRange();
+  const days = [];
+  for(let d=new Date(s); dateKey(d)<=dateKey(e); d.setDate(d.getDate()+1)){
+    days.push(new Date(d));
+  }
+
+  const totals = {};
+  const dayRows = [];
+  const todayKey = dateKey(new Date());
+
+  for(const day of days){
+    const entries = await fetchEntries(day);
+    let dayTotal = 0;
+    const dayItems = {};
+    entries.forEach(en=>{
+      const dur = en.end - en.start;
+      dayTotal += dur;
+      dayItems[en.item] = (dayItems[en.item]||0) + dur;
+      totals[en.item] = (totals[en.item]||0) + dur;
+    });
+    let ongoing = false;
+    if(current && dateKey(day)===todayKey && dateKey(new Date(current.start))===todayKey){
+      const dur = Date.now() - current.start;
+      dayTotal += dur;
+      dayItems[current.item] = (dayItems[current.item]||0) + dur;
+      totals[current.item] = (totals[current.item]||0) + dur;
+      ongoing = true;
+    }
+    if(entries.length>0 || ongoing){
+      dayRows.push({date: day, totalMs: dayTotal, items: dayItems, ongoing});
+    }
+  }
+
+  const sumList = document.getElementById('periodSummaryList');
+  const keys = Object.keys(totals).sort((a,b)=>totals[b]-totals[a]);
+  if(keys.length===0){
+    sumList.innerHTML = '<div class="empty">この期間の記録はありません</div>';
+  }else{
+    sumList.innerHTML = keys
+      .map(k=>'<div class="sum-row"><span>'+esc(k)+'</span><span class="dur">'+fmtDur(totals[k])+'</span></div>')
+      .join('');
+  }
+
+  const dayList = document.getElementById('periodDayList');
+  if(dayRows.length===0){
+    dayList.innerHTML = '<div class="empty">この期間の記録はありません</div>';
+  }else{
+    dayList.innerHTML = dayRows.map(row=>{
+      const wd = ['日','月','火','水','木','金','土'][row.date.getDay()];
+      const label = (row.date.getMonth()+1)+'/'+row.date.getDate()+'('+wd+')';
+      const topItems = Object.keys(row.items).sort((a,b)=>row.items[b]-row.items[a]).join('・');
+      const isToday = dateKey(row.date)===todayKey;
+      return '<div class="pday'+(isToday?' today':'')+'" data-key="'+dateKey(row.date)+'">'+
+        '<div class="pday-main"><span>'+label+'</span><span class="pday-total">'+fmtDur(row.totalMs)+(row.ongoing?'(進行中)':'')+'</span></div>'+
+        '<div class="pday-items">'+esc(topItems)+'</div>'+
+      '</div>';
+    }).join('');
+    dayList.querySelectorAll('.pday').forEach(el=>{
+      el.addEventListener('click', ()=>{
+        const key = el.getAttribute('data-key');
+        const [y,m,dd] = key.split('-').map(Number);
+        viewDate = new Date(y, m-1, dd);
+        showPeriodPanel = false;
+        editingIndex = null;
+        document.getElementById('periodToggleBtn').textContent = '週・月でまとめて見る ▾';
+        render();
+        window.scrollTo({top:0, behavior:'smooth'});
+      });
+    });
   }
 }
 
@@ -1003,6 +1254,23 @@ async function importBackup(file){
   }
 }
 
+document.getElementById('periodToggleBtn').addEventListener('click', ()=>{
+  showPeriodPanel = !showPeriodPanel;
+  const btn = document.getElementById('periodToggleBtn');
+  btn.textContent = showPeriodPanel ? '週・月でまとめて見る ▴' : '週・月でまとめて見る ▾';
+  if(showPeriodPanel){
+    periodAnchor = new Date(viewDate);
+    renderPeriodSummary();
+  }else{
+    document.getElementById('periodBox').style.display = 'none';
+  }
+});
+document.getElementById('periodModeWeek').addEventListener('click', ()=>{ periodMode='week'; renderPeriodSummary(); });
+document.getElementById('periodModeMonth').addEventListener('click', ()=>{ periodMode='month'; renderPeriodSummary(); });
+document.getElementById('periodPrevBtn').addEventListener('click', ()=> shiftPeriod(-1));
+document.getElementById('periodNextBtn').addEventListener('click', ()=> shiftPeriod(1));
+document.getElementById('periodBackToCurrentBtn').addEventListener('click', ()=>{ periodAnchor = new Date(); renderPeriodSummary(); });
+
 document.getElementById('exportToggleBtn').addEventListener('click', ()=>{
   const bar = document.getElementById('exportBar');
   const btn = document.getElementById('exportToggleBtn');
@@ -1034,6 +1302,7 @@ document.getElementById('undoBtn').addEventListener('click', ()=> undoLast());
 document.getElementById('prevDay').addEventListener('click', ()=>{ viewDate = new Date(viewDate.getTime()-86400000); editingIndex=null; render(); });
 document.getElementById('nextDay').addEventListener('click', ()=>{ viewDate = new Date(viewDate.getTime()+86400000); editingIndex=null; render(); });
 document.getElementById('editItemsBtn').addEventListener('click', ()=>{ showItemEditor = !showItemEditor; render(); });
+document.getElementById('moreItemsBtn').addEventListener('click', ()=>{ showAllItems = !showAllItems; render(); });
 document.getElementById('backToday').addEventListener('click', ()=>{ viewDate = new Date(); editingIndex=null; render(); });
 
 (async function init(){
@@ -1044,6 +1313,7 @@ document.getElementById('backToday').addEventListener('click', ()=>{ viewDate = 
     document.getElementById('ghToken').value = c.token || '';
   }catch(e){}
   try{ items = await fetchItems(); }catch(e){ items = DEFAULT_ITEMS.slice(); }
+  try{ favItems = fetchFavItems(); }catch(e){ favItems = items.slice(); }
   try{ current = await fetchCurrent(); }catch(e){ current = null; }
   try{ await fetchEntries(viewDate); }catch(e){}
   await render();
@@ -1059,7 +1329,7 @@ document.getElementById('backToday').addEventListener('click', ()=>{ viewDate = 
       if(ok){
         // reload caches for the viewed day from (possibly updated) storage
         delete entriesCache[dateKey(viewDate)];
-        try{ items = await fetchItems(); }catch(e){}
+        try{ items = await fetchItems(); favItems = fetchFavItems(); }catch(e){}
         render();
       }
     }
