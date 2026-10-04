@@ -157,6 +157,14 @@
   .importStatus{
     margin-top:10px;font-size:12.5px;padding:8px 10px;border-radius:8px;line-height:1.5;
   }
+  .exportbar .edit-field input[type="password"]{
+    width:100%;border:1px solid var(--line);border-radius:6px;padding:8px;font-size:13px;
+    font-family:inherit;background:var(--paper);color:var(--ink);
+  }
+  .ghbox{margin-top:16px;padding-top:14px;border-top:1px solid var(--line);}
+  .ghtitle{font-size:13px;font-weight:700;margin-bottom:10px;}
+  .exportbar .ghmain{background:var(--accent);color:#fff;border-color:var(--accent);margin-bottom:8px;}
+  .ghnote{font-size:11.5px;color:var(--muted);margin-top:10px;line-height:1.5;}
   .importStatus.ok{background:#e7f0e2;color:#3a6b2a;}
   .importStatus.err{background:var(--accent-soft);color:var(--danger);}
   .exportToggleRow{margin-top:6px;margin-bottom:8px;}
@@ -228,6 +236,25 @@
       <input type="file" id="importBackupFile" accept=".json,application/json" style="display:none;">
     </div>
     <div class="importStatus" id="importStatus" style="display:none;"></div>
+
+    <div class="ghbox">
+      <div class="ghtitle">Gist連携(自動で記録を送信)</div>
+      <div class="edit-field">
+        <label>Gist ID</label>
+        <input type="text" id="ghGistId" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <div class="edit-field">
+        <label>アクセストークン(gist権限のみのもの)</label>
+        <input type="password" id="ghToken" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="ghp_... / github_pat_...">
+      </div>
+      <button type="button" id="ghSaveBtn" class="ghmain">設定を保存して接続確認</button>
+      <div class="exportbar-sub">
+        <button type="button" id="ghPushBtn">今すぐ送信</button>
+        <button type="button" id="ghPullBtn">Gistから取り込む</button>
+      </div>
+      <div class="ghnote">記録は「あなたの名前」.json というファイル名でGist内に保存されます。トークンはこの端末のブラウザ内にのみ保存されます。</div>
+      <div class="importStatus" id="ghStatus" style="display:none;"></div>
+    </div>
   </div>
 
 </div>
@@ -317,6 +344,7 @@ function persistEntries(d, arr){
   const key = 'entries:'+dateKey(d);
   lsSet(key, arr);
   mirrorToWindowStorage(key, arr);
+  scheduleGistPush();
 }
 function persistCurrent(c){
   if(c===null){
@@ -330,6 +358,7 @@ function persistCurrent(c){
 function persistItems(){
   lsSet('items', items);
   mirrorToWindowStorage('items', items);
+  scheduleGistPush();
 }
 function persistPersonName(name){
   lsSet('personName', name);
@@ -673,6 +702,195 @@ async function render(showTimeWarning){
   }
 }
 
+// ================= Gist sync =================
+const DEFAULT_GIST_ID = 'd0732df28eb1604958a304e439b36839';
+let ghPushTimer = null;
+let ghPushing = false;
+
+function ghConfig(){
+  const token = lsGet('ghToken');
+  const gistId = lsGet('ghGistId');
+  return {
+    token: (typeof token==='string') ? token.trim() : '',
+    gistId: (typeof gistId==='string' && gistId.trim()) ? gistId.trim() : ''
+  };
+}
+function ghConfigured(){
+  const c = ghConfig();
+  return !!(c.token && c.gistId);
+}
+function gistFileName(){
+  const n = safeForFilename(fetchPersonName());
+  return (n ? n : 'worklog-default') + '.json';
+}
+function showGhStatus(msg, ok){
+  const el = document.getElementById('ghStatus');
+  if(!el) return;
+  el.textContent = msg;
+  el.className = 'importStatus ' + (ok ? 'ok' : 'err');
+  el.style.display = 'block';
+}
+function ghHeaders(token, withBody){
+  const h = {
+    'Authorization': 'token ' + token,
+    'Accept': 'application/vnd.github+json'
+  };
+  if(withBody) h['Content-Type'] = 'application/json';
+  return h;
+}
+function ghErrorMessage(status){
+  if(status===401) return 'トークンが無効です(401)。トークンを確認してください。';
+  if(status===403) return 'アクセスが拒否されました(403)。トークンの権限、またはAPI制限を確認してください。';
+  if(status===404) return 'Gistが見つかりません(404)。Gist IDと、トークンに「gist」権限があるか確認してください。';
+  if(status===422) return '送信内容が受け付けられませんでした(422)。';
+  return 'エラーが発生しました(HTTP ' + status + ')。';
+}
+
+function buildSnapshot(){
+  const entries = {};
+  allStoredDateKeys().forEach(dk=>{ entries[dk] = lsGet('entries:'+dk) || []; });
+  return {
+    exportedAt: new Date().toISOString(),
+    person: fetchPersonName(),
+    items: items,
+    entries: entries
+  };
+}
+
+// overwrite local data with a snapshot (remote wins)
+function applySnapshot(data){
+  let itemCount = 0, dayCount = 0;
+  if(data && Array.isArray(data.items) && data.items.length>0){
+    items = data.items;
+    persistItemsLocalOnly();
+    itemCount = items.length;
+  }
+  if(data && data.entries && typeof data.entries==='object'){
+    Object.keys(data.entries).forEach(dk=>{
+      const arr = data.entries[dk];
+      if(Array.isArray(arr)){
+        lsSet('entries:'+dk, arr);
+        entriesCache[dk] = arr;
+        dayCount++;
+      }
+    });
+  }
+  return {itemCount, dayCount};
+}
+// same as persistItems but without triggering another push
+function persistItemsLocalOnly(){
+  lsSet('items', items);
+  mirrorToWindowStorage('items', items);
+}
+
+async function pushToGist(manual){
+  if(!ghConfigured()){
+    if(manual) showGhStatus('Gist IDとトークンを入力して「設定を保存」してください。', false);
+    return false;
+  }
+  if(ghPushing){ scheduleGistPush(); return false; }
+  ghPushing = true;
+  const cfg = ghConfig();
+  const fname = gistFileName();
+  try{
+    const files = {};
+    files[fname] = { content: JSON.stringify(buildSnapshot(), null, 2) };
+    const res = await fetch('https://api.github.com/gists/' + encodeURIComponent(cfg.gistId), {
+      method: 'PATCH',
+      headers: ghHeaders(cfg.token, true),
+      body: JSON.stringify({ files: files })
+    });
+    if(!res.ok){
+      if(manual) showGhStatus(ghErrorMessage(res.status), false);
+      else showGhStatus('自動送信に失敗しました: ' + ghErrorMessage(res.status), false);
+      return false;
+    }
+    lsSet('ghDirty', false);
+    const t = new Date();
+    showGhStatus('Gistへ送信しました(' + pad(t.getHours()) + ':' + pad(t.getMinutes()) + '・' + fname + ')', true);
+    return true;
+  }catch(e){
+    showGhStatus('送信できませんでした(通信エラー)。未送信の変更は次回の送信時に反映されます。', false);
+    return false;
+  }finally{
+    ghPushing = false;
+  }
+}
+
+function scheduleGistPush(){
+  if(!ghConfigured()) return;
+  lsSet('ghDirty', true);
+  if(ghPushTimer) clearTimeout(ghPushTimer);
+  ghPushTimer = setTimeout(()=>{ ghPushTimer = null; pushToGist(false); }, 1500);
+}
+
+async function pullFromGist(manual){
+  if(!ghConfigured()){
+    if(manual) showGhStatus('Gist IDとトークンを入力して「設定を保存」してください。', false);
+    return false;
+  }
+  const cfg = ghConfig();
+  const fname = gistFileName();
+  try{
+    const res = await fetch('https://api.github.com/gists/' + encodeURIComponent(cfg.gistId), {
+      method: 'GET',
+      headers: ghHeaders(cfg.token, false)
+    });
+    if(!res.ok){
+      if(manual) showGhStatus(ghErrorMessage(res.status), false);
+      return false;
+    }
+    const gist = await res.json();
+    const file = gist && gist.files ? gist.files[fname] : null;
+    if(!file){
+      if(manual) showGhStatus('Gist内に「' + fname + '」はまだありません。記録すると自動で作成されます。', true);
+      return true;
+    }
+    if(file.truncated){
+      if(manual) showGhStatus('ファイルが大きすぎて取得できませんでした。', false);
+      return false;
+    }
+    let data;
+    try{ data = JSON.parse(file.content); }
+    catch(e){
+      if(manual) showGhStatus('Gist内のファイルをJSONとして解析できませんでした。', false);
+      return false;
+    }
+    const r = applySnapshot(data);
+    render();
+    if(manual) showGhStatus('Gistから取り込みました:項目' + r.itemCount + '件、' + r.dayCount + '日分', true);
+    return true;
+  }catch(e){
+    if(manual) showGhStatus('取得できませんでした(通信エラー)。', false);
+    return false;
+  }
+}
+
+async function saveGhSettings(){
+  const gistId = document.getElementById('ghGistId').value.trim();
+  const token = document.getElementById('ghToken').value.trim();
+  if(!gistId || !token){
+    showGhStatus('Gist IDとトークンの両方を入力してください。', false);
+    return;
+  }
+  lsSet('ghGistId', gistId);
+  lsSet('ghToken', token);
+  // connection test: read the gist
+  try{
+    const res = await fetch('https://api.github.com/gists/' + encodeURIComponent(gistId), {
+      method: 'GET',
+      headers: ghHeaders(token, false)
+    });
+    if(!res.ok){
+      showGhStatus('保存しましたが接続確認に失敗しました。' + ghErrorMessage(res.status), false);
+      return;
+    }
+    showGhStatus('接続できました。「今すぐ送信」で現在の記録を送信できます。以降は記録するたびに自動送信されます。', true);
+  }catch(e){
+    showGhStatus('保存しましたが、通信エラーで接続確認できませんでした。', false);
+  }
+}
+
 function allStoredDateKeys(){
   const keys = [];
   try{
@@ -793,6 +1011,9 @@ document.getElementById('exportToggleBtn').addEventListener('click', ()=>{
   btn.textContent = open ? '保存・書き出し ▾' : '保存・書き出し ▴';
 });
 document.getElementById('nameInput').addEventListener('change', (ev)=>{ persistPersonName(ev.target.value); });
+document.getElementById('ghSaveBtn').addEventListener('click', saveGhSettings);
+document.getElementById('ghPushBtn').addEventListener('click', ()=> pushToGist(true));
+document.getElementById('ghPullBtn').addEventListener('click', ()=> pullFromGist(true));
 document.getElementById('exportCsvBtn').addEventListener('click', exportCSV);
 document.getElementById('exportBackupBtn').addEventListener('click', exportBackup);
 document.getElementById('importBackupBtn').addEventListener('click', ()=>{
@@ -817,11 +1038,32 @@ document.getElementById('backToday').addEventListener('click', ()=>{ viewDate = 
 
 (async function init(){
   try{ document.getElementById('nameInput').value = fetchPersonName(); }catch(e){}
+  try{
+    const c = ghConfig();
+    document.getElementById('ghGistId').value = c.gistId || DEFAULT_GIST_ID;
+    document.getElementById('ghToken').value = c.token || '';
+  }catch(e){}
   try{ items = await fetchItems(); }catch(e){ items = DEFAULT_ITEMS.slice(); }
   try{ current = await fetchCurrent(); }catch(e){ current = null; }
   try{ await fetchEntries(viewDate); }catch(e){}
   await render();
   setInterval(tickTimer, 15000);
+
+  // Gist sync on load: if there are unsent local changes, send them first
+  // (local wins); otherwise pull the latest from Gist.
+  if(ghConfigured()){
+    if(lsGet('ghDirty') === true){
+      await pushToGist(false);
+    }else{
+      const ok = await pullFromGist(false);
+      if(ok){
+        // reload caches for the viewed day from (possibly updated) storage
+        delete entriesCache[dateKey(viewDate)];
+        try{ items = await fetchItems(); }catch(e){}
+        render();
+      }
+    }
+  }
 })();
 </script>
 </body>
